@@ -1,69 +1,131 @@
-// HTTP biblioteka skirta HTTP serveriams
+import mysql from 'mysql2';
+import { Student } from './models/student';
 import http from 'http';
-
-// Failinės sistemos biblioteka skirta darbui su failais
 import fs from 'fs';
+import path from 'path';
 
-//Susikuriame serverio objektą
-const server=http.createServer((req,res)=>{
-    const method=req.method;
+//Kintamasis kuris rodo ar mes prisijungę prie duomenų bazės
+let connected=false;
+
+// Ši dalis sukuria prisijungimą prie duomenų bazės
+const con=mysql.createConnection({
+    host:"localhost",
+    user:"root",
+    password:"LabasRytas",
+    database:"students"
+});
+
+//Prisijungia prie duomenų bazės
+// con.connect();
+// con.connect( funkcija kuri bus vykdoma po prisijungimo )
+con.connect((error:any)=>{
+ if (error) throw error;
+
+ //Po prisijungimo be klaidos, nustatome jog esame prisijungę prie DB
+ connected=true;
+
+ console.log("Prisijungta");
+ 
+});
+
+
+
+//Sukuriame http serverį ir paduodame f-ją kuri bus vykdoma kai ateis užklausa
+const server=http.createServer((req, res)=>{
     const url=req.url;
-    console.log(`Metodas: ${method}, URL: ${url}`);
+    const method=req.method;
+    
 
-    if (url=='/calculate' && method=='POST'){
-        //Saugomi duomenų "gabalai"
-        const reqBody:any[]=[];
-        //Funkcija kuri iškviečiama kai gaunamas duomenų gabalas
-        req.on('data', (d)=>{
-            console.log(`Gaunami duomenys`);
-            console.log(`Duomenys: ${d}`);
-            //Kiekvieną duomenų gabalą įdedame į masyvą
-            reqBody.push(d);
-        });
-
-        //Funkcija kuri iškviečiama kai baigiami siųsti duomenys (visi duomenų gabalai gauti)
-        req.on('end',()=>{
-            console.log(`Baigti siųsti duomenys`);
-            //Sujungiame visus gabalus į vieną sąrašą ir paverčiame į string'ą
-            const reqData=Buffer.concat(reqBody).toString();
-            const va=reqData.split('&');
-            const x=parseFloat(va[0].split('=')[1]);
-            const y=parseFloat(va[1].split('=')[1]);
-            console.log(`Visi gauti duomenys: ${reqData}`);
-            console.log(va);
-
-            res.setHeader("Content-Type", "text/html; charset=utf-8");
-            //Nuskaitome failą result.html (į buffer tipo kintamąjį, ir paverčiame į stringą)
-            let template=fs.readFileSync('templates/result.html').toString();
-            //Pakeičiame tekstą template {{ result }} į suskaičiuotą rezultatą 
-            template=template.replace('{{ result }}',`Rezultatas: ${x*y}`);
-            res.write(template);
-            res.end();
-        });
-        return;
+    /*
+    //Jei kažkas atėjo į puslapį su GET metodu į url: localhost:2999/students, Galime jam išsiųsti JSON formatu duomenis
+    if (url=='/students' && method=='GET'){
+        if (connected){
+            con.query<Student[]>("SELECT * FROM students ORDER BY name ASC;", (error,result)=>{
+                if (error) throw error;
+                res.setHeader("Content-Type", "text/JSON; charset=utf-8");
+                res.write(JSON.stringify(result));        
+                res.end();
+            });   
+        }
     }
+    */
 
-    if (url=='/'){
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        const template=fs.readFileSync('templates/index.html');
-        res.write(template);
+    //Dalis skirta statiniem failam išvesti
+    let filePath=`public${url}`;
+    // fs.existsSync("kelias iki failo")  - patikrina ar failas,katalogas, likas egzistuoja, jei taip, tai garažina 'true', jei ne 'false'
+    // fs.lstatSync(filePath).isFile()  -patikrina ar tai failas (ne katalogas, nuoroda, įrenginys)
+    if (fs.existsSync(filePath) && fs.lstatSync(filePath).isFile()){
+        const ext=path.extname(filePath);
+        switch (ext) {
+            case ".css":
+                res.setHeader("Content-Type", "text/css; charset=utf-8");
+                break;
+            case ".js":
+                res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+                break;
+            case ".jpg":
+            case ".png":
+            case ".jpeg":
+                res.setHeader("Content-Type", "image/jpg; charset=utf-8");
+                break;
+        
+        }
+        let file=fs.readFileSync(filePath);
+        res.write(file);
         return res.end();
     }
 
+    //Jei kažkas atėjo į puslapį su GET metodu į url: localhost:2999/students, išsiunčiame jam studentų sąrašą HTML formatu
+    if (url=='/students' && method=='GET'){
+        if (connected){
+            con.query<Student[]>("SELECT * FROM students ORDER BY name ASC;", (error,result)=>{
+                if (error) throw error;
+                res.setHeader("Content-Type", "text/html; charset=utf-8");
+                let rows="";
+                result.forEach((s)=>{ 
+                    rows+="<tr>";
+                    rows+=`<td>${s.name}</td> <td>${s.surname}</td> <td>${s.phone}</td> <td> <a href='/student/${s.id}' class="btn btn-success">Plačiau</a></td>`;
+                    rows+="</tr>";
+                });
+               
+                let template=fs.readFileSync('templates/students.html').toString();
+                template=template.replace('{{ students_table }}', rows);
+              
+                res.write(template);        
+                res.end();
+            });   
+        }
+    }
 
-    //Jei puslapis nebuvo rastas
-    res.writeHead(404, {
-        "Content-Type":"text/html; charset=utf-8"
-    });
-   
-    const template=fs.readFileSync('templates/404.html');
-    res.write(template);
-    return res.end();
-
-
+    //Vieno studento atvaizdavimas, kai url = localhost:2999/student/5
+    console.log(url?.split("/"));
+    if ( url?.split("/")[1] == 'student' ){
+        //Pasiimame iš url id
+        let id=parseInt(url?.split("/")[2]);
+        con.query<Student[]>(`SELECT * FROM students WHERE id=${id};`, (error,result)=>{
+            if (error) throw error;
+            let student=result[0];
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            
+            let template=fs.readFileSync('templates/student.html').toString();
+            template=template.replace("{{ name }}", student.name);
+            template=template.replace("{{ surname }}", student.surname);
+            template=template.replace("{{ phone }}", student.phone!=null?student.phone:'-');
+            template=template.replace("{{ sex }}", student.sex!=null?student.sex:'-');
+            template=template.replace("{{ email }}", student.email!=null?student.email:'-');
+            template=template.replace("{{ birthday }}", student.birthday!=null?student.birthday.toLocaleDateString():'-');
+            
+          
+            res.write(template);        
+            res.end();
+        });
+        
+        
+    }
 
     
-    
+
 });
 
+//Paleidžiame serverį
 server.listen(2999,'localhost');
