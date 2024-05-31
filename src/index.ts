@@ -84,17 +84,64 @@ const server=http.createServer((req, res)=>{
                 let rows="";
                 result.forEach((s)=>{ 
                     rows+="<tr>";
-                    rows+=`<td>${s.name}</td> <td>${s.surname}</td> <td>${s.phone}</td> <td> <a href='/student/${s.id}' class="btn btn-success">Plačiau</a></td>`;
+                    rows+=`<td>${s.name}</td> <td>${s.surname}</td> <td>${s.phone}</td> <td> <a href='/student/${s.id}' class="btn btn-success">Plačiau</a> <a href='/delete/${s.id}' class="btn btn-danger">Ištrinti</a></td>`;
                     rows+="</tr>";
                 });
                
                 let template=fs.readFileSync('templates/students.html').toString();
                 template=template.replace('{{ students_table }}', rows);
+                
               
                 res.write(template);        
                 res.end();
             });   
         }
+    }
+
+    //Funkcija iškviečiame kai pridėjimo lange paspaudžiame submit mygtuką 
+    if (url=='/add' && method=='POST'){
+        if (connected){
+           const reqBody:any[]=[];
+           req.on('data', (d)=>{
+                reqBody.push(d);
+           });
+           req.on('end', ()=>{
+            
+                const reqData=decodeURIComponent(Buffer.concat(reqBody).toString());
+                const dd=reqData.split('&');
+                console.log(dd); 
+                //Išsiskaldysime duomenis į atskirus kintamuosius
+                const name= mysql.escape(dd[0].split('=')[1]);
+                const surname=mysql.escape(dd[1].split('=')[1]);
+                const phone=mysql.escape(dd[2].split('=')[1]);
+                const sex=mysql.escape(dd[3].split('=')[1]);
+                const birthday=mysql.escape(dd[4].split('=')[1]);
+                const email=mysql.escape(dd[5].split('=')[1]);
+
+                const sql=`INSERT INTO students(name, surname, phone, sex, birthday, email) VALUES (${name}, ${surname}, ${phone}, ${sex}, ${birthday}, ${email})`;
+                con.query(sql, (error)=>{
+                    if (error) throw error;
+                });
+
+                res.writeHead(302, {
+                    'Location':'/students'
+                })
+                res.end();
+           });
+
+
+        } 
+    }
+
+    
+
+    //Funkcija iškviečiame kai ateiname į pridėjimo langą
+    if (url=='/add' && method=='GET'){
+        if (connected){
+            let template=fs.readFileSync('templates/add.html').toString();
+            res.write(template);
+            res.end();
+        } 
     }
 
     //Vieno studento atvaizdavimas, kai url = localhost:2999/student/5
@@ -117,6 +164,20 @@ const server=http.createServer((req, res)=>{
             
           
             res.write(template);        
+            res.end();
+        });
+        
+        
+    }
+
+    if ( url?.split("/")[1] == 'delete' ){
+        //Pasiimame iš url id
+        let id=parseInt(url?.split("/")[2]);
+        con.query<Student[]>(`DELETE FROM students WHERE id=${id};`, (error,result)=>{
+            if (error) throw error;
+            res.writeHead(302, {
+                'Location':'/students'
+            })
             res.end();
         });
         
